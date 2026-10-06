@@ -1,0 +1,1 @@
+# hospital-management-platform_microservice
