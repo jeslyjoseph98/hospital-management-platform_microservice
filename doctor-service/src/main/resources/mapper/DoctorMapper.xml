@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hms.doctor.mapper.DoctorMapper">
+
+    <resultMap id="DoctorResultMap" type="com.hms.doctor.model.Doctor">
+        <id property="id" column="id"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="fullName" column="full_name"/>
+        <result property="qualification" column="qualification"/>
+        <result property="specialization" column="specialization"/>
+        <result property="registrationNumber" column="registration_number"/>
+        <result property="experienceYears" column="experience_years"/>
+        <result property="phone" column="phone"/>
+        <result property="email" column="email"/>
+        <result property="about" column="about"/>
+        <result property="consultationFee" column="consultation_fee"/>
+        <result property="dailyLimit" column="daily_limit"/>
+        <result property="loginRegistered" column="login_registered"/>
+        <result property="active" column="is_active"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findById" resultMap="DoctorResultMap">
+        SELECT * FROM doctors WHERE id = #{id}
+    </select>
+
+    <select id="findByRegistrationNumber" resultMap="DoctorResultMap">
+        SELECT * FROM doctors WHERE registration_number = #{registrationNumber}
+    </select>
+
+    <select id="findByRegistrationNumberExcludingId" resultMap="DoctorResultMap">
+        SELECT * FROM doctors WHERE registration_number = #{registrationNumber} AND id != #{id}
+    </select>
+
+    <select id="search" resultMap="DoctorResultMap">
+        SELECT * FROM doctors
+        <where>
+            <if test="departmentId != null">AND department_id = #{departmentId}</if>
+            <if test="name != null and name != ''">AND LOWER(full_name) LIKE CONCAT('%', LOWER(#{name}), '%')</if>
+            <if test="active != null">AND is_active = #{active}</if>
+        </where>
+        ORDER BY id
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*) FROM doctors
+        <where>
+            <if test="departmentId != null">AND department_id = #{departmentId}</if>
+            <if test="name != null and name != ''">AND LOWER(full_name) LIKE CONCAT('%', LOWER(#{name}), '%')</if>
+            <if test="active != null">AND is_active = #{active}</if>
+        </where>
+    </select>
+
+    <select id="findActiveByDepartment" resultMap="DoctorResultMap">
+        SELECT * FROM doctors WHERE department_id = #{departmentId} AND is_active = 1 ORDER BY full_name
+    </select>
+
+    <insert id="insert" parameterType="com.hms.doctor.model.Doctor" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO doctors (department_id, full_name, qualification, specialization, registration_number,
+                              experience_years, phone, email, about, consultation_fee, daily_limit,
+                              login_registered, is_active, created_by, updated_by)
+        VALUES (#{departmentId}, #{fullName}, #{qualification}, #{specialization}, #{registrationNumber},
+                #{experienceYears}, #{phone}, #{email}, #{about}, #{consultationFee}, #{dailyLimit},
+                #{loginRegistered}, #{active}, #{createdBy}, #{updatedBy})
+    </insert>
+
+    <update id="update" parameterType="com.hms.doctor.model.Doctor">
+        UPDATE doctors
+        SET department_id = #{departmentId},
+            full_name = #{fullName},
+            qualification = #{qualification},
+            specialization = #{specialization},
+            registration_number = #{registrationNumber},
+            experience_years = #{experienceYears},
+            phone = #{phone},
+            email = #{email},
+            about = #{about},
+            consultation_fee = #{consultationFee},
+            daily_limit = #{dailyLimit},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE doctors
+        SET is_active = #{active}, updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLoginRegistered">
+        UPDATE doctors SET login_registered = 1 WHERE id = #{id}
+    </update>
+
+</mapper>

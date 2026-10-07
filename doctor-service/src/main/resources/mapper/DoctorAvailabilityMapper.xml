@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hms.doctor.mapper.DoctorAvailabilityMapper">
+
+    <resultMap id="AvailabilityResultMap" type="com.hms.doctor.model.DoctorAvailability">
+        <id property="id" column="id"/>
+        <result property="doctorId" column="doctor_id"/>
+        <result property="dayOfWeek" column="day_of_week"/>
+        <result property="startTime" column="start_time"/>
+        <result property="endTime" column="end_time"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findByDoctorId" resultMap="AvailabilityResultMap">
+        SELECT * FROM doctor_availability WHERE doctor_id = #{doctorId} ORDER BY day_of_week
+    </select>
+
+    <insert id="insert" parameterType="com.hms.doctor.model.DoctorAvailability" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO doctor_availability (doctor_id, day_of_week, start_time, end_time, created_by)
+        VALUES (#{doctorId}, #{dayOfWeek}, #{startTime}, #{endTime}, #{createdBy})
+    </insert>
+
+    <delete id="deleteByDoctorId">
+        DELETE FROM doctor_availability WHERE doctor_id = #{doctorId}
+    </delete>
+
+</mapper>

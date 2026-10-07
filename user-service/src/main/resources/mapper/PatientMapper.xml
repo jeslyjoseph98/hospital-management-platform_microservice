@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hms.userservice.mapper.PatientMapper">
+
+    <resultMap id="PatientResultMap" type="com.hms.userservice.domain.Patient">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="patientCode" column="patient_code"/>
+        <result property="dateOfBirth" column="date_of_birth"/>
+        <result property="gender" column="gender"/>
+        <result property="address" column="address"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.hms.userservice.domain.Patient"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO patients (user_id, date_of_birth, gender, address, created_at)
+        VALUES (#{userId}, #{dateOfBirth}, #{gender}, #{address}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="updatePatientCode">
+        UPDATE patients SET patient_code = #{patientCode} WHERE id = #{id}
+    </update>
+
+    <select id="findByUserId" resultMap="PatientResultMap">
+        SELECT * FROM patients WHERE user_id = #{userId}
+    </select>
+
+    <select id="findById" resultMap="PatientResultMap">
+        SELECT * FROM patients WHERE id = #{id}
+    </select>
+
+</mapper>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hms.doctor.mapper.DepartmentMapper">
+
+    <resultMap id="DepartmentResultMap" type="com.hms.doctor.model.Department">
+        <id property="id" column="id"/>
+        <result property="deptName" column="dept_name"/>
+        <result property="description" column="description"/>
+        <result property="active" column="is_active"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findById" resultMap="DepartmentResultMap">
+        SELECT * FROM departments WHERE id = #{id}
+    </select>
+
+    <select id="findByNameIgnoreCase" resultMap="DepartmentResultMap">
+        SELECT * FROM departments WHERE LOWER(dept_name) = LOWER(#{deptName})
+    </select>
+
+    <select id="findByNameIgnoreCaseExcludingId" resultMap="DepartmentResultMap">
+        SELECT * FROM departments WHERE LOWER(dept_name) = LOWER(#{deptName}) AND id != #{id}
+    </select>
+
+    <select id="findAll" resultMap="DepartmentResultMap">
+        SELECT * FROM departments ORDER BY dept_name
+    </select>
+
+    <select id="findAllActive" resultMap="DepartmentResultMap">
+        SELECT * FROM departments WHERE is_active = 1 ORDER BY dept_name
+    </select>
+
+    <insert id="insert" parameterType="com.hms.doctor.model.Department" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO departments (dept_name, description, is_active, created_by, updated_by)
+        VALUES (#{deptName}, #{description}, #{active}, #{createdBy}, #{updatedBy})
+    </insert>
+
+    <update id="update" parameterType="com.hms.doctor.model.Department">
+        UPDATE departments
+        SET dept_name = #{deptName},
+            description = #{description},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE departments
+        SET is_active = #{active}, updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countActiveDoctorsByDepartment" resultType="long">
+        SELECT COUNT(*) FROM doctors WHERE department_id = #{departmentId} AND is_active = 1
+    </select>
+
+    <select id="countAllDoctorsByDepartment" resultType="long">
+        SELECT COUNT(*) FROM doctors WHERE department_id = #{departmentId}
+    </select>
+
+</mapper>

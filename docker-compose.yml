@@ -1,0 +1,249 @@
+version: "3.9"
+
+networks:
+  hms-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  postgres-data:
+  mongo-data:
+
+services:
+  # ---------------------------------------------------------------- infra --
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./docker/mysql-init.sql:/docker-entrypoint-initdb.d/mysql-init.sql:ro
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks: [hms-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/postgres-init.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Host 5432 is commonly taken by a locally-installed PostgreSQL; map to
+      # 5433 on the host. Containers still reach it at postgres:5432.
+      - "5433:5432"
+    networks: [hms-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    hostname: mongo
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    networks: [hms-net]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: initiates the single-node replica set. Can't be done via
+  # /docker-entrypoint-initdb.d — that runs against a temporary mongod bound
+  # only to 127.0.0.1, before the real --bind_ip_all instance is reachable at
+  # the "mongo" hostname, so rs.initiate() with host "mongo:27017" fails with
+  # NodeNotFound. This runs after the real instance is up instead.
+  mongo-rs-init:
+    image: mongo:7
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks: [hms-net]
+    restart: "no"
+    entrypoint: ["bash", "/script/mongo-rs-init.sh"]
+    volumes:
+      - ./docker/mongo-rs-init.sh:/script/mongo-rs-init.sh:ro
+
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    networks: [hms-net]
+
+  # One-shot: pre-creates the Kafka topics from SVC-00 §8.2. See
+  # docker/kafka-topics-init.sh for why this is needed instead of relying on
+  # auto-create-on-subscribe (consumers that start before any producer has
+  # run can otherwise hit UNKNOWN_TOPIC_OR_PARTITION and crash).
+  kafka-topics-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka: { condition: service_started }
+    networks: [hms-net]
+    restart: "no"
+    entrypoint: ["bash", "/script/kafka-topics-init.sh"]
+    volumes:
+      - ./docker/kafka-topics-init.sh:/script/kafka-topics-init.sh:ro
+
+  # ------------------------------------------------------- business svcs --
+  user-service:
+    build: ./user-service
+    environment:
+      SERVER_PORT: 8081
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/hms_user?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: user_service
+      SPRING_DATASOURCE_PASSWORD: user_service_pw
+      HMS_JWT_SECRET: ${HMS_JWT_SECRET:-dev-only-change-me-dev-only-change-me}
+      HMS_JWT_EXPIRY_MINUTES: 60
+      HMS_ADMIN_REGISTRATION_CODE: HMS-ADMIN-2026
+      HMS_PHARMACY_REGISTRATION_CODE: HMS-PHARM-2026
+      HMS_SERVICES_DOCTOR_URL: http://doctor-service:8082
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      mysql: { condition: service_healthy }
+      kafka-topics-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [hms-net]
+
+  doctor-service:
+    build: ./doctor-service
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/hms_doctor?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: doctor_service
+      SPRING_DATASOURCE_PASSWORD: doctor_service_pw
+      HMS_SERVICES_APPOINTMENT_URL: http://appointment-service:8083
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      mysql: { condition: service_healthy }
+      kafka-topics-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [hms-net]
+
+  appointment-service:
+    build: ./appointment-service
+    environment:
+      PORT: 8083
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: hms_appointment
+      PGUSER: appointment_service
+      PGPASSWORD: appointment_service_pw
+      DOCTOR_SERVICE_URL: http://doctor-service:8082
+      USER_SERVICE_URL: http://user-service:8081
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-topics-init: { condition: service_completed_successfully }
+      doctor-service: { condition: service_started }
+      user-service: { condition: service_started }
+    restart: unless-stopped
+    networks: [hms-net]
+
+  notification-service:
+    build: ./notification-service
+    environment:
+      PORT: 8085
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: hms_notification
+      PGUSER: notification_service
+      PGPASSWORD: notification_service_pw
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-topics-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [hms-net]
+
+  consultation-service:
+    build: ./consultation-service
+    environment:
+      PORT: 8084
+      MONGO_URL: mongodb://mongo:27017/hms_consultation?replicaSet=rs0
+      APPOINTMENT_SERVICE_URL: http://appointment-service:8083
+      USER_SERVICE_URL: http://user-service:8081
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      mongo: { condition: service_healthy }
+      mongo-rs-init: { condition: service_completed_successfully }
+      kafka-topics-init: { condition: service_completed_successfully }
+      appointment-service: { condition: service_started }
+      user-service: { condition: service_started }
+    restart: unless-stopped
+    networks: [hms-net]
+
+  api-gateway:
+    build: ./api-gateway
+    environment:
+      SERVER_PORT: 8080
+      HMS_JWT_SECRET: ${HMS_JWT_SECRET:-dev-only-change-me-dev-only-change-me}
+      HMS_SERVICES_USER_URL: http://user-service:8081
+      HMS_SERVICES_DOCTOR_URL: http://doctor-service:8082
+      HMS_SERVICES_APPOINTMENT_URL: http://appointment-service:8083
+      HMS_SERVICES_CONSULTATION_URL: http://consultation-service:8084
+      HMS_SERVICES_NOTIFICATION_URL: http://notification-service:8085
+      HMS_CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:8090
+    ports:
+      - "8080:8080"
+    depends_on:
+      - user-service
+      - doctor-service
+      - appointment-service
+      - consultation-service
+      - notification-service
+    restart: unless-stopped
+    networks: [hms-net]
+
+  # ---------------------------------------------------------- frontends --
+  # These are static bundles built with the gateway's host-published URL
+  # baked in at build time (the browser calls the gateway directly, not
+  # through the Docker network) — see each Dockerfile's comment.
+  admin-web:
+    build:
+      context: ./admin-web
+      args:
+        VITE_API_URL: http://localhost:8080/api/v1
+    ports:
+      - "5173:80"
+    networks: [hms-net]
+
+  clinic-web:
+    build:
+      context: ./clinic-web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks: [hms-net]
+
+  patient-app:
+    build:
+      context: ./patient-app
+      args:
+        API_URL: http://localhost:8080/api/v1
+    ports:
+      - "8090:80"
+    networks: [hms-net]

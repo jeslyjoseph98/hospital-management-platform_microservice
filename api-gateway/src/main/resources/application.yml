@@ -1,0 +1,109 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+hms:
+  jwt:
+    secret: ${HMS_JWT_SECRET:dev-only-change-me-dev-only-change-me}
+  cors:
+    allowed-origins: ${HMS_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:8090}
+  services:
+    user-url: ${HMS_SERVICES_USER_URL:http://localhost:8081}
+    doctor-url: ${HMS_SERVICES_DOCTOR_URL:http://localhost:8082}
+    appointment-url: ${HMS_SERVICES_APPOINTMENT_URL:http://localhost:8083}
+    consultation-url: ${HMS_SERVICES_CONSULTATION_URL:http://localhost:8084}
+    notification-url: ${HMS_SERVICES_NOTIFICATION_URL:http://localhost:8085}
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 10000
+        response-timeout: 10s
+      routes:
+        # 1. auth -> user-service (public, no token required)
+        - id: auth
+          uri: ${hms.services.user-url}
+          predicates:
+            - Path=/api/v1/auth/**
+
+        # 2. patients/me -> user-service (PATIENT)
+        - id: patients-me
+          uri: ${hms.services.user-url}
+          predicates:
+            - Path=/api/v1/patients/me
+
+        # 3. doctor availability -> appointment-service (PATIENT) - must be
+        #    ordered before the general /doctors/** rule below.
+        - id: doctor-availability
+          uri: ${hms.services.appointment-url}
+          predicates:
+            - Path=/api/v1/doctors/*/availability
+
+        # 4. departments -> doctor-service (PATIENT)
+        - id: departments
+          uri: ${hms.services.doctor-url}
+          predicates:
+            - Path=/api/v1/departments/**
+
+        # 5. doctors -> doctor-service (PATIENT)
+        - id: doctors
+          uri: ${hms.services.doctor-url}
+          predicates:
+            - Path=/api/v1/doctors/**
+
+        # 6. appointments -> appointment-service (PATIENT)
+        - id: appointments
+          uri: ${hms.services.appointment-url}
+          predicates:
+            - Path=/api/v1/appointments/**
+
+        # 7. consultations/my -> consultation-service (PATIENT)
+        - id: consultations-my
+          uri: ${hms.services.consultation-url}
+          predicates:
+            - Path=/api/v1/consultations/my/**
+
+        # 8. notifications -> notification-service (PATIENT)
+        - id: notifications
+          uri: ${hms.services.notification-url}
+          predicates:
+            - Path=/api/v1/notifications/**
+
+        # 9. admin/appointments -> appointment-service (ADMIN) - must be
+        #    ordered before the general /admin/** rule below.
+        - id: admin-appointments
+          uri: ${hms.services.appointment-url}
+          predicates:
+            - Path=/api/v1/admin/appointments/**
+
+        # 10. admin -> doctor-service (ADMIN)
+        - id: admin
+          uri: ${hms.services.doctor-url}
+          predicates:
+            - Path=/api/v1/admin/**
+
+        # 11. doctor/appointments -> appointment-service (DOCTOR) - must be
+        #     ordered before the general /doctor/** rule below.
+        - id: doctor-appointments
+          uri: ${hms.services.appointment-url}
+          predicates:
+            - Path=/api/v1/doctor/appointments/**
+
+        # 12. doctor -> consultation-service (DOCTOR)
+        - id: doctor
+          uri: ${hms.services.consultation-url}
+          predicates:
+            - Path=/api/v1/doctor/**
+
+        # 13. pharmacy -> consultation-service (PHARMACIST)
+        - id: pharmacy
+          uri: ${hms.services.consultation-url}
+          predicates:
+            - Path=/api/v1/pharmacy/**
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    com.hms.gateway: INFO
